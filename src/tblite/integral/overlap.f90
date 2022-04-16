@@ -336,6 +336,89 @@ pure subroutine overlap_cgto(cgtoj, cgtoi, r2, vec, intcut, overlap)
 end subroutine overlap_cgto
 
 
+pure subroutine overlap_cgto_mmd(cgtoj, cgtoi, r2, vec, intcut, overlap)
+   !> Description of contracted Gaussian function on center i
+   type(cgto_type), intent(in) :: cgtoi
+   !> Description of contracted Gaussian function on center j
+   type(cgto_type), intent(in) :: cgtoj
+   !> Square distance between center i and j
+   real(wp), intent(in) :: r2
+   !> Distance vector between center i and j, ri - rj
+   real(wp), intent(in) :: vec(3)
+   !> Maximum value of integral prefactor to consider
+   real(wp), intent(in) :: intcut
+   !> Overlap integrals for the given pair i  and j
+   real(wp), intent(out) :: overlap(msao(cgtoj%ang), msao(cgtoi%ang))
+
+   integer :: ip, jp, mli, mlj, l, li(3), lj(3)
+   real(wp) :: eab, oab, est, s1d(0:maxl2), rpi(3), rpj(3), cc, val, pre
+   real(wp) :: s3d(mlao(cgtoj%ang), mlao(cgtoi%ang))
+   real(wp) :: et(0:maxl2, 0:maxl, 0:maxl, 3)
+
+   s3d(:, :) = 0.0_wp
+
+   do ip = 1, cgtoi%nprim
+      do jp = 1, cgtoj%nprim
+         eab = cgtoi%alpha(ip) + cgtoj%alpha(jp)
+         oab = 1.0_wp/eab
+         est = cgtoi%alpha(ip) * cgtoj%alpha(jp) * r2 * oab
+         if (est > intcut) cycle
+         pre = exp(-est) * sqrtpi3*sqrt(oab)**3
+         rpi = -vec * cgtoj%alpha(jp) * oab
+         rpj = +vec * cgtoi%alpha(ip) * oab
+         cc = cgtoi%coeff(ip) * cgtoj%coeff(jp)
+         call e_function(cgtoj%ang, cgtoi%ang, 0.5_wp*oab, pre, rpj, rpi, et)
+         do mli = 1, mlao(cgtoi%ang)
+            do mlj = 1, mlao(cgtoj%ang)
+               li = lx(:, mli+lmap(cgtoi%ang))
+               lj = lx(:, mlj+lmap(cgtoj%ang))
+               val = product([(et(0, lj(l), li(l), l), l = 1, 3)])
+               s3d(mlj, mli) = s3d(mlj, mli) + cc * val
+            end do
+         end do
+      end do
+   end do
+
+   call transform0(cgtoj%ang, cgtoi%ang, s3d, overlap)
+
+end subroutine overlap_cgto_mmd
+
+
+pure subroutine e_function(lj, li, xij, pre, rpj, rpi, e)
+   integer, intent(in) :: lj, li
+   real(wp), intent(in) :: xij, pre, rpj(3), rpi(3)
+   real(wp), intent(out) :: e(0:, 0:, 0:, :)
+
+   integer :: i, j, m, n
+
+   e(:, :, :, :) = 0.0_wp
+   e(0, 0, 0, :) = [pre, 1.0_wp, 1.0_wp]
+   do m = 1, 3
+      do i = 1, li
+         e(0, 0, i, m) = rpi(m) * e(0, 0, i-1, m) + e(1, 0, i-1, m)
+         do n = 1, i-1
+            e(n, 0, i, m) = xij * e(n-1, 0, i-1, m) &
+               & + rpi(m) * e(n, 0, i-1, m) &
+               & + (1+n) * e(n+1, 0, i-1, m)
+         end do
+         e(i, 0, i, m) = xij * e(i-1, 0, i-1, m) + rpi(m) * e(i, 0, i-1, m)
+      end do
+      do j = 1, lj
+         do i = 0, li
+            e(0, j, i, m) = rpj(m) * e(0, j-1, i, m) + e(1, j-1, i, m)
+            do n = 1, i+j-1
+               e(n, j, i, m) = xij * e(n-1, j-1, i, m) &
+                  & + rpj(m) * e(n, j-1, i, m)
+               if (n < li+lj) &
+                  e(n, j, i, m) = e(n, j, i, m) + (1 + n) * e(n+1, j-1, i, m)
+            end do
+            e(i+j, j, i, m) = xij * e(i+j-1, j-1, i, m) + rpj(m) * e(i+j, j-1, i, m)
+         end do
+      end do
+   end do
+end subroutine
+
+
 pure subroutine overlap_grad_cgto(cgtoj, cgtoi, r2, vec, intcut, overlap, doverlap)
    !> Description of contracted Gaussian function on center i
    type(cgto_type), intent(in) :: cgtoi
@@ -431,7 +514,7 @@ subroutine get_overlap_lat(mol, trans, cutoff, bas, overlap)
                ii = bas%iao_sh(is+ish)
                do jsh = 1, bas%nsh_id(jzp)
                   jj = bas%iao_sh(js+jsh)
-                  call overlap_cgto(bas%cgto(jsh, jzp), bas%cgto(ish, izp), &
+                  call overlap_cgto_mmd(bas%cgto(jsh, jzp), bas%cgto(ish, izp), &
                      & r2, vec, bas%intcut, stmp)
 
                   nao = msao(bas%cgto(jsh, jzp)%ang)
