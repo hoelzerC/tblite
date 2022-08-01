@@ -24,6 +24,7 @@ module tblite_integral_multipole
    use mctc_io_constants, only : pi
    use tblite_basis_type, only : basis_type, cgto_type
    use tblite_integral_trafo, only : transform0, transform1, transform2
+   use tblite_integral_mmd, only : e_function
    implicit none
    private
 
@@ -347,7 +348,7 @@ pure subroutine multipole_grad_3d(rpj, rpi, aj, ai, lj, li, s1d, s3d, d3d, q3d, 
 end subroutine multipole_grad_3d
 
 
-pure subroutine multipole_cgto(cgtoj, cgtoi, r2, vec, intcut, overlap, dpint, qpint)
+pure subroutine multipole_cgto_(cgtoj, cgtoi, r2, vec, intcut, overlap, dpint, qpint)
    !> Description of contracted Gaussian function on center i
    type(cgto_type), intent(in) :: cgtoi
    !> Description of contracted Gaussian function on center j
@@ -393,6 +394,92 @@ pure subroutine multipole_cgto(cgtoj, cgtoi, r2, vec, intcut, overlap, dpint, qp
                call multipole_3d(rpj, rpi, cgtoj%alpha(jp), cgtoi%alpha(ip), &
                   & lx(:, mlj+lmap(cgtoj%ang)), lx(:, mli+lmap(cgtoi%ang)), &
                   & s1d, val, dip, quad)
+               s3d(mlj, mli) = s3d(mlj, mli) + cc*val
+               d3d(:, mlj, mli) = d3d(:, mlj, mli) + cc*dip
+               q3d(:, mlj, mli) = q3d(:, mlj, mli) + cc*quad
+            end do
+         end do
+      end do
+   end do
+
+   call transform0(cgtoj%ang, cgtoi%ang, s3d, overlap)
+   call transform1(cgtoj%ang, cgtoi%ang, d3d, dpint)
+   call transform1(cgtoj%ang, cgtoi%ang, q3d, qpint)
+
+   ! remove trace from quadrupole integrals (transfrom to spherical harmonics and back)
+   do mli = 1, msao(cgtoi%ang)
+      do mlj = 1, msao(cgtoj%ang)
+         tr = 0.5_wp * (qpint(1, mlj, mli) + qpint(3, mlj, mli) + qpint(6, mlj, mli))
+         qpint(1, mlj, mli) = 1.5_wp * qpint(1, mlj, mli) - tr
+         qpint(2, mlj, mli) = 1.5_wp * qpint(2, mlj, mli)
+         qpint(3, mlj, mli) = 1.5_wp * qpint(3, mlj, mli) - tr
+         qpint(4, mlj, mli) = 1.5_wp * qpint(4, mlj, mli)
+         qpint(5, mlj, mli) = 1.5_wp * qpint(5, mlj, mli)
+         qpint(6, mlj, mli) = 1.5_wp * qpint(6, mlj, mli) - tr
+      end do
+   end do
+
+end subroutine multipole_cgto_
+
+
+pure subroutine multipole_cgto(cgtoj, cgtoi, r2, vec, intcut, overlap, dpint, qpint)
+   !> Description of contracted Gaussian function on center i
+   type(cgto_type), intent(in) :: cgtoi
+   !> Description of contracted Gaussian function on center j
+   type(cgto_type), intent(in) :: cgtoj
+   !> Square distance between center i and j
+   real(wp), intent(in) :: r2
+   !> Distance vector between center i and j, ri - rj
+   real(wp), intent(in) :: vec(3)
+   !> Maximum value of integral prefactor to consider
+   real(wp), intent(in) :: intcut
+   !> Overlap integrals for the given pair i  and j
+   real(wp), intent(out) :: overlap(msao(cgtoj%ang), msao(cgtoi%ang))
+   !> Dipole moment integrals for the given pair i  and j
+   real(wp), intent(out) :: dpint(3, msao(cgtoj%ang), msao(cgtoi%ang))
+   !> Quadrupole moment integrals for the given pair i  and j
+   real(wp), intent(out) :: qpint(6, msao(cgtoj%ang), msao(cgtoi%ang))
+
+   integer :: ip, jp, mli, mlj, li(3), lj(3)
+   real(wp) :: eab, oab, est, s1d(0:maxl2), rpi(3), rpj(3), cc, val, dip(3), quad(6), pre, tr
+   real(wp) :: e0(3), e1(3), e2(3)
+   real(wp) :: s3d(mlao(cgtoj%ang), mlao(cgtoi%ang))
+   real(wp) :: d3d(3, mlao(cgtoj%ang), mlao(cgtoi%ang))
+   real(wp) :: q3d(6, mlao(cgtoj%ang), mlao(cgtoi%ang))
+   real(wp) :: et(0:maxl2, 0:maxl, 0:maxl, 3)
+
+   s3d(:, :) = 0.0_wp
+   d3d(:, :, :) = 0.0_wp
+   q3d(:, :, :) = 0.0_wp
+
+   do ip = 1, cgtoi%nprim
+      do jp = 1, cgtoj%nprim
+         eab = cgtoi%alpha(ip) + cgtoj%alpha(jp)
+         oab = 1.0_wp/eab
+         est = cgtoi%alpha(ip) * cgtoj%alpha(jp) * r2 * oab
+         if (est > intcut) cycle
+         pre = exp(-est) * sqrtpi3*sqrt(oab)**3
+         rpi = -vec * cgtoj%alpha(jp) * oab
+         rpj = +vec * cgtoi%alpha(ip) * oab
+         cc = cgtoi%coeff(ip) * cgtoj%coeff(jp) * pre
+         call e_function(cgtoj%ang+1, cgtoi%ang+1, 0.5_wp*oab, rpj, rpi, et)
+         do mli = 1, mlao(cgtoi%ang)
+            do mlj = 1, mlao(cgtoj%ang)
+               call multipole_3d(rpj, rpi, cgtoj%alpha(jp), cgtoi%alpha(ip), &
+                  & lx(:, mlj+lmap(cgtoj%ang)), lx(:, mli+lmap(cgtoi%ang)), &
+                  & s1d, val, dip, quad)
+               li = lx(:, mli+lmap(cgtoi%ang))
+               lj = lx(:, mlj+lmap(cgtoj%ang))
+               e0 = [et(0, lj(1), li(1), 1), et(0, lj(2), li(2), 2), et(0, lj(3), li(3), 3)]
+               e1 = [ &
+                  & et(1, lj(1), li(1), 1) + rpi(1) * e0(1), &
+                  & et(1, lj(2), li(2), 2) + rpi(2) * e0(2), &
+                  & et(1, lj(3), li(3), 3) + rpi(3) * e0(3)]
+               e2 = [ &
+                  & et(2, lj(1), li(1), 1) + rpi(1) * e1(1), &
+                  & et(2, lj(2), li(2), 2) + rpi(2) * e1(2), &
+                  & et(2, lj(3), li(3), 3) + rpi(3) * e1(3)]
+
                s3d(mlj, mli) = s3d(mlj, mli) + cc*val
                d3d(:, mlj, mli) = d3d(:, mlj, mli) + cc*dip
                q3d(:, mlj, mli) = q3d(:, mlj, mli) + cc*quad

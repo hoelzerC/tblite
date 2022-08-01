@@ -24,6 +24,7 @@ module tblite_integral_dipole
    use mctc_io_constants, only : pi
    use tblite_basis_type, only : basis_type, cgto_type
    use tblite_integral_trafo, only : transform0, transform1, transform2
+   use tblite_integral_mmd, only : e_function, e_derivative
    implicit none
    private
 
@@ -311,7 +312,7 @@ pure subroutine dipole_grad_3d(rpj, rpi, aj, ai, lj, li, s1d, s3d, d3d, &
 end subroutine dipole_grad_3d
 
 
-pure subroutine dipole_cgto(cgtoj, cgtoi, r2, vec, intcut, overlap, dpint)
+subroutine dipole_cgto(cgtoj, cgtoi, r2, vec, intcut, overlap, dpint)
    !> Description of contracted Gaussian function on center i
    type(cgto_type), intent(in) :: cgtoi
    !> Description of contracted Gaussian function on center j
@@ -327,10 +328,11 @@ pure subroutine dipole_cgto(cgtoj, cgtoi, r2, vec, intcut, overlap, dpint)
    !> Dipole moment integrals for the given pair i  and j
    real(wp), intent(out) :: dpint(3, msao(cgtoj%ang), msao(cgtoi%ang))
 
-   integer :: ip, jp, mli, mlj, l
-   real(wp) :: eab, oab, est, s1d(0:maxl2), rpi(3), rpj(3), cc, val, dip(3), pre
+   integer :: ip, jp, mli, mlj, l, li(3), lj(3)
+   real(wp) :: eab, oab, est, s1d(0:maxl2), rpi(3), rpj(3), cc, val, dip(3), pre, e0(3), e1(3)
    real(wp) :: s3d(mlao(cgtoj%ang), mlao(cgtoi%ang))
    real(wp) :: d3d(3, mlao(cgtoj%ang), mlao(cgtoi%ang))
+   real(wp) :: et(0:maxl2, 0:maxl, 0:maxl, 3)
 
    s3d(:, :) = 0.0_wp
    d3d(:, :, :) = 0.0_wp
@@ -344,17 +346,20 @@ pure subroutine dipole_cgto(cgtoj, cgtoi, r2, vec, intcut, overlap, dpint)
          pre = exp(-est) * sqrtpi3*sqrt(oab)**3
          rpi = -vec * cgtoj%alpha(jp) * oab
          rpj = +vec * cgtoi%alpha(ip) * oab
-         do l = 0, cgtoi%ang + cgtoj%ang + 1
-            s1d(l) = overlap_1d(l, eab)
-         end do
          cc = cgtoi%coeff(ip) * cgtoj%coeff(jp) * pre
+         call e_function(cgtoj%ang+1, cgtoi%ang+1, 0.5_wp*oab, rpj, rpi, et)
          do mli = 1, mlao(cgtoi%ang)
             do mlj = 1, mlao(cgtoj%ang)
-               call dipole_3d(rpj, rpi, cgtoj%alpha(jp), cgtoi%alpha(ip), &
-                  & lx(:, mlj+lmap(cgtoj%ang)), lx(:, mli+lmap(cgtoi%ang)), &
-                  & s1d, val, dip)
-               s3d(mlj, mli) = s3d(mlj, mli) + cc*val
-               d3d(:, mlj, mli) = d3d(:, mlj, mli) + cc*dip
+               li = lx(:, mli+lmap(cgtoi%ang))
+               lj = lx(:, mlj+lmap(cgtoj%ang))
+               e0 = [et(0, lj(1), li(1), 1), et(0, lj(2), li(2), 2), et(0, lj(3), li(3), 3)]
+               e1 = [ &
+                  & et(1, lj(1), li(1), 1) + rpi(1) * e0(1), &
+                  & et(1, lj(2), li(2), 2) + rpi(2) * e0(2), &
+                  & et(1, lj(3), li(3), 3) + rpi(3) * e0(3)]
+               s3d(mlj, mli) = s3d(mlj, mli) + cc * product(e0)
+               dip = [e1(1)*e0(2)*e0(3), e0(1)*e1(2)*e0(3), e0(1)*e0(2)*e1(3)]
+               d3d(:, mlj, mli) = d3d(:, mlj, mli) + cc * dip
             end do
          end do
       end do
@@ -387,13 +392,14 @@ pure subroutine dipole_grad_cgto(cgtoj, cgtoi, r2, vec, intcut, overlap, dpint, 
    !> Dipole moment integral gradient for the given pair i  and j
    real(wp), intent(out) :: ddpint(3, 3, msao(cgtoj%ang), msao(cgtoi%ang))
 
-   integer :: ip, jp, mli, mlj, l
+   integer :: ip, jp, mli, mlj, l, li(3), lj(3)
    real(wp) :: eab, oab, est, s1d(0:maxl2), rpi(3), rpj(3), cc, val, dip(3)
-   real(wp) :: pre, grad(3), ddip(3, 3)
+   real(wp) :: pre, grad(3), ddip(3, 3), e0(3), e1(3), d0(3), d1(3)
    real(wp) :: s3d(mlao(cgtoj%ang), mlao(cgtoi%ang))
    real(wp) :: d3d(3, mlao(cgtoj%ang), mlao(cgtoi%ang))
    real(wp) :: ds3d(3, mlao(cgtoj%ang), mlao(cgtoi%ang))
    real(wp) :: dd3d(3, 3, mlao(cgtoj%ang), mlao(cgtoi%ang))
+   real(wp) :: et(0:maxl2, 0:maxl, 0:maxl, 3), ed(0:maxl2, 0:maxl, 0:maxl, 3)
 
    s3d(:, :) = 0.0_wp
    d3d(:, :, :) = 0.0_wp
@@ -409,18 +415,36 @@ pure subroutine dipole_grad_cgto(cgtoj, cgtoi, r2, vec, intcut, overlap, dpint, 
          pre = exp(-est) * sqrtpi3*sqrt(oab)**3
          rpi = -vec * cgtoj%alpha(jp) * oab
          rpj = +vec * cgtoi%alpha(ip) * oab
-         do l = 0, cgtoi%ang + cgtoj%ang + 2
-            s1d(l) = overlap_1d(l, eab)
-         end do
          cc = cgtoi%coeff(ip) * cgtoj%coeff(jp) * pre
+         call e_function(cgtoj%ang+1, cgtoi%ang+2, 0.5_wp*oab, rpj, rpi, et)
+         call e_derivative(et, cgtoi%alpha(ip), cgtoj%ang, cgtoi%ang, ed)
          do mli = 1, mlao(cgtoi%ang)
             do mlj = 1, mlao(cgtoj%ang)
-               call dipole_grad_3d(rpj, rpi, cgtoj%alpha(jp), cgtoi%alpha(ip), &
-                  & lx(:, mlj+lmap(cgtoj%ang)), lx(:, mli+lmap(cgtoi%ang)), &
-                  & s1d, val, dip, grad, ddip)
-               s3d(mlj, mli) = s3d(mlj, mli) + cc*val
-               d3d(:, mlj, mli) = d3d(:, mlj, mli) + cc*dip
+               li = lx(:, mli+lmap(cgtoi%ang))
+               lj = lx(:, mlj+lmap(cgtoj%ang))
+               e0 = [et(0, lj(1), li(1), 1), et(0, lj(2), li(2), 2), et(0, lj(3), li(3), 3)]
+               d0 = [ed(0, lj(1), li(1), 1), ed(0, lj(2), li(2), 2), ed(0, lj(3), li(3), 3)]
+               e1 = [ &
+                  & et(1, lj(1), li(1), 1) + rpi(1) * e0(1), &
+                  & et(1, lj(2), li(2), 2) + rpi(2) * e0(2), &
+                  & et(1, lj(3), li(3), 3) + rpi(3) * e0(3)]
+               d1 = [ &
+                  & ed(1, lj(1), li(1), 1) + rpi(1) * d0(1) + e0(1), &
+                  & ed(1, lj(2), li(2), 2) + rpi(2) * d0(2) + e0(2), &
+                  & ed(1, lj(3), li(3), 3) + rpi(3) * d0(3) + e0(3)]
+
+               s3d(mlj, mli) = s3d(mlj, mli) + cc * product(e0)
+               grad = [d0(1)*e0(2)*e0(3), e0(1)*d0(2)*e0(3), e0(1)*e0(2)*d0(3)]
                ds3d(:, mlj, mli) = ds3d(:, mlj, mli) + cc*grad
+
+               dip = [e1(1)*e0(2)*e0(3), e0(1)*e1(2)*e0(3), e0(1)*e0(2)*e1(3)]
+               d3d(:, mlj, mli) = d3d(:, mlj, mli) + cc * dip
+
+               ddip = reshape([&
+                  & d1(1)*e0(2)*e0(3), e1(1)*d0(2)*e0(3), e1(1)*e0(2)*d0(3), &
+                  & d0(1)*e1(2)*e0(3), e0(1)*d1(2)*e0(3), e0(1)*e1(2)*d0(3), &
+                  & d0(1)*e0(2)*e1(3), e0(1)*d0(2)*e1(3), e0(1)*e0(2)*d1(3)],&
+                  & shape(ddip))
                dd3d(:, :, mlj, mli) = dd3d(:, :, mlj, mli) + cc*ddip
             end do
          end do
