@@ -136,10 +136,14 @@ subroutine xtb_singlepoint(ctx, mol, calc, wfn, accuracy, energy, gradient, sigm
       sigma(:, :) = 0.0_wp
    end if
 
+   write(*, *) ""
+   write(*, *) "gradient initial"          
+   write(*, '(*(6x,SP,"[",3(es23.16e2, "":, ","),"],", /))', advance='no')  gradient         
+   write(*, *) ",]," ! not zero before
+
    if (allocated(calc%halogen)) then
       call timer%push("halogen")
       call calc%halogen%update(mol, hcache)
-      call calc%halogen%get_engrad(mol, hcache, exbond, gradient, sigma)
       if (prlevel > 1) &
          call ctx%message(label_halogen // format_string(sum(exbond), real_format) // " Eh")
       energies(:) = energies + exbond
@@ -149,7 +153,6 @@ subroutine xtb_singlepoint(ctx, mol, calc, wfn, accuracy, energy, gradient, sigm
    if (allocated(calc%repulsion)) then
       call timer%push("repulsion")
       call calc%repulsion%update(mol, rcache)
-      call calc%repulsion%get_engrad(mol, rcache, erep, gradient, sigma)
       if (prlevel > 1) &
          call ctx%message(label_repulsion // format_string(sum(erep), real_format) // " Eh")
       energies(:) = energies + erep
@@ -159,7 +162,6 @@ subroutine xtb_singlepoint(ctx, mol, calc, wfn, accuracy, energy, gradient, sigm
    if (allocated(calc%dispersion)) then
       call timer%push("dispersion")
       call calc%dispersion%update(mol, dcache)
-      call calc%dispersion%get_engrad(mol, dcache, edisp, gradient, sigma)
       if (prlevel > 1) &
          call ctx%message(label_dispersion // format_string(sum(edisp), real_format) // " Eh")
       energies(:) = energies + edisp
@@ -169,7 +171,6 @@ subroutine xtb_singlepoint(ctx, mol, calc, wfn, accuracy, energy, gradient, sigm
    if (allocated(calc%interactions)) then
       call timer%push("interactions")
       call calc%interactions%update(mol, icache)
-      call calc%interactions%get_engrad(mol, icache, eint, gradient, sigma)
       if (prlevel > 1) &
          call ctx%message(label_other // format_string(sum(eint), real_format) // " Eh")
       energies(:) = energies + eint
@@ -277,23 +278,6 @@ subroutine xtb_singlepoint(ctx, mol, calc, wfn, accuracy, energy, gradient, sigm
    if (ctx%failed()) return
 
    if (grad) then
-      if (allocated(calc%coulomb)) then
-         call timer%push("coulomb")
-         call calc%coulomb%get_gradient(mol, ccache, wfn, gradient, sigma)
-         call timer%pop
-      end if
-
-      if (allocated(calc%dispersion)) then
-         call timer%push("dispersion")
-         call calc%dispersion%get_gradient(mol, dcache, wfn, gradient, sigma)
-         call timer%pop
-      end if
-
-      if (allocated(calc%interactions)) then
-         call timer%push("interactions")
-         call calc%interactions%get_gradient(mol, icache, wfn, gradient, sigma)
-         call timer%pop
-      end if
 
       call timer%push("hamiltonian")
       allocate(dEdcn(mol%nat))
@@ -310,13 +294,12 @@ subroutine xtb_singlepoint(ctx, mol, calc, wfn, accuracy, energy, gradient, sigm
 
       write(*, *) ""
       write(*, *) "set gradient_old" 
+      write(*, *) "gradient before"          
+      write(*, '(*(6x,SP,"[",3(es23.16e2, "":, ","),"],", /))', advance='no')  gradient         
+      write(*, *) ",],"
       gradient_old = gradient
       call get_hamiltonian_gradient(mol, lattr, list, calc%bas, calc%h0, selfenergy, &
          & dsedcn, pot, wfn%density, wdensity, dEdcn, gradient, sigma)
-      write(*, *) ""
-      write(*, *) "gradient"          
-      write(*, '(*(6x,SP,"[",3(es23.16e2, "":, ","),"],", /))', advance='no')  gradient         
-      write(*, *) ",],"
       write(*, *) "gradient - gradient_old"          
       write(*, '(*(6x,SP,"[",3(es23.16e2, "":, ","),"],", /))', advance='no')  gradient - gradient_old         
       write(*, *) ",],"
