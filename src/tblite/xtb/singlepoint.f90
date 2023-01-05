@@ -108,6 +108,9 @@ subroutine xtb_singlepoint(ctx, mol, calc, wfn, accuracy, energy, gradient, sigm
    type(adjacency_list) :: list
    integer :: iscf, spin
 
+   real(wp), allocatable :: gradient_old(:, :)
+   allocate(gradient_old(size(gradient,1), size(gradient,2)), source=0.0_wp) ! causes to fail a single test (not effecting execution though)
+
    call timer%push("total")
 
    if (present(verbosity)) then
@@ -304,8 +307,21 @@ subroutine xtb_singlepoint(ctx, mol, calc, wfn, accuracy, energy, gradient, sigm
       call updown_to_magnet(wfn%density)
       call updown_to_magnet(wdensity)
       !print '(3es20.13)', sigma
+
+      write(*, *) ""
+      write(*, *) "set gradient_old" 
+      gradient_old = gradient
       call get_hamiltonian_gradient(mol, lattr, list, calc%bas, calc%h0, selfenergy, &
          & dsedcn, pot, wfn%density, wdensity, dEdcn, gradient, sigma)
+      write(*, *) ""
+      write(*, *) "gradient"          
+      write(*, '(*(6x,SP,"[",3(es23.16e2, "":, ","),"],", /))', advance='no')  gradient         
+      write(*, *) ",],"
+      write(*, *) "gradient - gradient_old"          
+      write(*, '(*(6x,SP,"[",3(es23.16e2, "":, ","),"],", /))', advance='no')  gradient - gradient_old         
+      write(*, *) ",],"
+      
+
       call magnet_to_updown(wfn%density)
 
       if (allocated(dcndr)) then
