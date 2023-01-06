@@ -26,6 +26,7 @@ module tblite_xtb_h0
    use tblite_integral_multipole, only : multipole_cgto, multipole_grad_cgto, maxl, msao
    use tblite_scf_potential, only : potential_type
    use tblite_xtb_spec, only : tb_h0spec
+   use tblite_integral_overlap, only : overlap_cgto, overlap_grad_cgto
    implicit none
    private
 
@@ -351,6 +352,13 @@ subroutine get_hamiltonian_gradient(mol, trans, list, bas, h0, selfenergy, dsedc
    !> Derivative of the electronic energy w.r.t. strain deformations
    real(wp), intent(inout) :: sigma(:, :)
 
+   ! tmp overlap variables
+   ! TODO: real(wp) :: overlap(:, :), doverlapi(:, :, :), doverlapj(:, :, :), overlap2(:, :)
+   ! real(wp) :: overlap(1, 1), doverlapi(3, 1, 1), doverlapj(3, 1, 1), overlap2(1, 1)
+   ! get shapes right --> get norb   
+   ! real(wp), intent(out) :: overlap(msao(cgtoj%ang), msao(cgtoi%ang))
+   ! real(wp), intent(out) :: doverlap(3, msao(cgtoj%ang), msao(cgtoi%ang))
+   
    integer :: iat, jat, izp, jzp, itr, img, inl, spin, nspin
    integer :: ish, jsh, is, js, ii, jj, iao, jao, nao, ij
    real(wp) :: rr, r2, vec(3), cutoff2, hij, dG(3), hscale, hs
@@ -393,7 +401,12 @@ subroutine get_hamiltonian_gradient(mol, trans, list, bas, h0, selfenergy, dsedc
                call multipole_grad_cgto(bas%cgto(jsh, jzp), bas%cgto(ish, izp), &
                   & r2, vec, bas%intcut, stmp, dtmp, qtmp, dstmp, ddtmpj, dqtmpj, &
                   & ddtmpi, dqtmpi)
-               
+                  
+               ! replace multipole_grad_cgto with overlap_grad_cgto and print result
+               ! call overlap_grad_cgto(cgtoi, cgtoj, r2, vec, 100.0_wp, overlap, doverlapj)
+               ! call overlap_grad_cgto(bas%cgto(jsh, jzp), bas%cgto(ish, izp), r2, vec, 100.0_wp, overlap, doverlapj)
+               ! call overlap_grad_cgto(bas%cgto(ish, izp), bas%cgto(jsh, jzp), r2, -vec, 100.0_wp, overlap2, doverlapi)
+                           
                shpolyi = 1.0_wp + h0%shpoly(ish, izp)*rr
                shpolyj = 1.0_wp + h0%shpoly(jsh, jzp)*rr
                shpoly = shpolyi * shpolyj
@@ -403,14 +416,15 @@ subroutine get_hamiltonian_gradient(mol, trans, list, bas, h0, selfenergy, dsedc
 
                hscale = h0%hscale(jsh, ish, jzp, izp)
                hs = hscale * shpoly
-               hij = 0.5_wp * (selfenergy(is+ish) + selfenergy(js+jsh)) * hs 
+               ! hij = 0.5_wp * (selfenergy(is+ish) + selfenergy(js+jsh)) * hs 
+               hij = 1.0_wp
 
-               dhdcni = dsedcn(is+ish) * hs
-               dhdcnj = dsedcn(js+jsh) * hs
+               ! dhdcni = dsedcn(is+ish) * hs
+               ! dhdcnj = dsedcn(js+jsh) * hs
 
                dG(:) = 0.0_wp
-               dcni = 0.0_wp
-               dcnj = 0.0_wp
+               ! dcni = 0.0_wp
+               ! dcnj = 0.0_wp
                nao = msao(bas%cgto(jsh, jzp)%ang)
                do iao = 1, msao(bas%cgto(ish, izp)%ang)
                   do jao = 1, nao
@@ -432,16 +446,16 @@ subroutine get_hamiltonian_gradient(mol, trans, list, bas, h0, selfenergy, dsedc
                         - pij * matmul(dqtmpi(:, :, ij), pot%vqp(:, iat, 1)) &
                         - pij * matmul(dqtmpj(:, :, ij), pot%vqp(:, jat, 1))
 
-                     dcni = dcni + dhdcni * pmat(jj+jao, ii+iao, 1) * stmp(ij)
-                     dcnj = dcnj + dhdcnj * pmat(jj+jao, ii+iao, 1) * stmp(ij)
+                     ! dcni = dcni + dhdcni * pmat(jj+jao, ii+iao, 1) * stmp(ij)
+                     ! dcnj = dcnj + dhdcnj * pmat(jj+jao, ii+iao, 1) * stmp(ij)
                   end do
                end do
-               dEdcn(iat) = dEdcn(iat) + dcni
-               dEdcn(jat) = dEdcn(jat) + dcnj
+               ! dEdcn(iat) = dEdcn(iat) + dcni
+               ! dEdcn(jat) = dEdcn(jat) + dcnj
                gradient(:, iat) = gradient(:, iat) + dG
                gradient(:, jat) = gradient(:, jat) - dG
-               sigma(:, :) = sigma + 0.5_wp * (spread(vec, 1, 3) * spread(dG, 2, 3) &
-                  + spread(dG, 1, 3) * spread(vec, 2, 3))
+               ! sigma(:, :) = sigma + 0.5_wp * (spread(vec, 1, 3) * spread(dG, 2, 3) &
+               !    + spread(dG, 1, 3) * spread(vec, 2, 3))
 
             end do
          end do
@@ -449,23 +463,32 @@ subroutine get_hamiltonian_gradient(mol, trans, list, bas, h0, selfenergy, dsedc
       end do
    end do
 
-   !$omp parallel do schedule(runtime) default(none) reduction(+:dEdcn) &
-   !$omp shared(mol, bas, dsedcn, pmat, nspin) &
-   !$omp private(iat, izp, jzp, is, ish, ii, iao, dcni, dhdcni, spin)
-   do iat = 1, mol%nat
-      izp = mol%id(iat)
-      is = bas%ish_at(iat)
-      do ish = 1, bas%nsh_id(izp)
-         ii = bas%iao_sh(is+ish)
-         dhdcni = dsedcn(is+ish)
-         dcni = 0.0_wp
-         do iao = 1, msao(bas%cgto(ish, izp)%ang)
-            dcni = dcni + dhdcni * pmat(ii+iao, ii+iao, 1)
-         end do
-         dEdcn(iat) = dEdcn(iat) + dcni
-      end do
-   end do
+   ! !$omp parallel do schedule(runtime) default(none) reduction(+:dEdcn) &
+   ! !$omp shared(mol, bas, dsedcn, pmat, nspin) &
+   ! !$omp private(iat, izp, jzp, is, ish, ii, iao, dcni, dhdcni, spin)
+   ! do iat = 1, mol%nat
+   !    izp = mol%id(iat)
+   !    is = bas%ish_at(iat)
+   !    do ish = 1, bas%nsh_id(izp)
+   !       ii = bas%iao_sh(is+ish)
+   !       dhdcni = dsedcn(is+ish)
+   !       dcni = 0.0_wp
+   !       do iao = 1, msao(bas%cgto(ish, izp)%ang)
+   !          dcni = dcni + dhdcni * pmat(ii+iao, ii+iao, 1)
+   !       end do
+   !       dEdcn(iat) = dEdcn(iat) + dcni
+   !    end do
+   ! end do
 
+   ! write(*, *) ''
+   ! write(*, *) 'inside get_hamiltonian_gradient'
+   ! write(*, *) 'gradient'
+   ! write(*, *) gradient
+   ! write(*, *) 'overlap'
+   ! write(*, *) overlap
+   ! write(*, *) 'doverlapj'
+   ! write(*, *) doverlapj
+  
 end subroutine get_hamiltonian_gradient
 
 
