@@ -417,7 +417,7 @@ subroutine get_hamiltonian_gradient(mol, trans, list, bas, h0, selfenergy, dsedc
                hscale = h0%hscale(jsh, ish, jzp, izp)
                hs = hscale * shpoly
                ! hij = 0.5_wp * (selfenergy(is+ish) + selfenergy(js+jsh)) * hs 
-               hij = 1.0_wp
+               ! hij = 1.0_wp
 
                ! dhdcni = dsedcn(is+ish) * hs
                ! dhdcnj = dsedcn(js+jsh) * hs
@@ -429,22 +429,24 @@ subroutine get_hamiltonian_gradient(mol, trans, list, bas, h0, selfenergy, dsedc
                do iao = 1, msao(bas%cgto(ish, izp)%ang)
                   do jao = 1, nao
                      ij = jao + nao*(iao-1)
-                     do spin = 1, nspin
-                        pij = pmat(jj+jao, ii+iao, spin)
-                        sval = - pij * (pot%vao(jj+jao, spin) + pot%vao(ii+iao, spin))
+                     ! do spin = 1, nspin
+                     !    pij = pmat(jj+jao, ii+iao, spin)
+                     !    sval = - pij * (pot%vao(jj+jao, spin) + pot%vao(ii+iao, spin))
+                     !    dG(:) = dG + sval * dstmp(:, ij)  
+                     ! end do
+                     ! pij = pmat(jj+jao, ii+iao, 1)
+                     ! hpij = pij * hij 
+                     ! sval = 2*hpij - 2*xmat(jj+jao, ii+iao, 1)
 
-                        dG(:) = dG + sval * dstmp(:, ij)  
-                     end do
-                     pij = pmat(jj+jao, ii+iao, 1)
-                     hpij = pij * hij 
-                     sval = 2*hpij - 2*xmat(jj+jao, ii+iao, 1)
-
-                     dG(:) = dG + sval * dstmp(:, ij) &
-                        + 2*hpij*stmp(ij) * dsv &
-                        - pij * matmul(ddtmpi(:, :, ij), pot%vdp(:, iat, 1)) &
-                        - pij * matmul(ddtmpj(:, :, ij), pot%vdp(:, jat, 1)) &
-                        - pij * matmul(dqtmpi(:, :, ij), pot%vqp(:, iat, 1)) &
-                        - pij * matmul(dqtmpj(:, :, ij), pot%vqp(:, jat, 1))
+                     ! avoid scaling of overlap entries to obtain dS/dr (differential of overlap w.r.t. positions)
+                     sval = 1.0_wp
+                     dG(:) = dG + sval * dstmp(:, ij)
+                     ! dG(:) = dG + sval * dstmp(:, ij) &
+                     !    + 2*hpij*stmp(ij) * dsv &
+                     !    - pij * matmul(ddtmpi(:, :, ij), pot%vdp(:, iat, 1)) &
+                     !    - pij * matmul(ddtmpj(:, :, ij), pot%vdp(:, jat, 1)) &
+                     !    - pij * matmul(dqtmpi(:, :, ij), pot%vqp(:, iat, 1)) &
+                     !    - pij * matmul(dqtmpj(:, :, ij), pot%vqp(:, jat, 1))
 
                      ! dcni = dcni + dhdcni * pmat(jj+jao, ii+iao, 1) * stmp(ij)
                      ! dcnj = dcnj + dhdcnj * pmat(jj+jao, ii+iao, 1) * stmp(ij)
