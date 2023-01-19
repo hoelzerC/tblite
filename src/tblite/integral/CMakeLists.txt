@@ -19,6 +19,7 @@ set(dir "${CMAKE_CURRENT_SOURCE_DIR}")
 list(
   APPEND srcs
   "${dir}/dipole.f90"
+  "${dir}/mmd.f90"
   "${dir}/multipole.f90"
   "${dir}/overlap.f90"
   "${dir}/trafo.f90"

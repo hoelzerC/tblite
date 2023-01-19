@@ -550,6 +550,7 @@ subroutine test_overlap_grad_ss(error)
    end do
 
    do i = 1, 3
+      print *, doverlapj(i, 1, 1), doverlapi(i, 1, 1)
       call check(error, doverlapi(i, 1, 1), doverlapj(i, 1, 1), thr=thr)
       if (allocated(error)) exit
    end do

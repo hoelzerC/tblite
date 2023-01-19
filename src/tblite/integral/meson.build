@@ -16,6 +16,7 @@
 
 srcs += files(
   'dipole.f90',
+  'mmd.f90',
   'multipole.f90',
   'overlap.f90',
   'trafo.f90',

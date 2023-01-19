@@ -218,6 +218,55 @@ subroutine test_dipole_grad_ss(error)
    real(wp) :: vec(3), r2, zero(3)
    real(wp) :: overlap(1, 1), doverlapi(3, 1, 1), doverlapj(3, 1, 1)
    real(wp) :: dipole(3, 1, 1), ddipolei(3, 3, 1, 1), ddipolej(3, 3, 1, 1)
+   real(wp) :: sr(1, 1), sl(1, 1), dr(3, 1, 1), dl(3, 1, 1)
+   real(wp), parameter :: step = 1.0e-6_wp
+
+   call slater_to_gauss(ng, 2, 0, 1.0_wp, cgtoi, .true., stat)
+   call slater_to_gauss(ng, 1, 0, 1.0_wp, cgtoj, .true., stat)
+
+   call random_number(vec)
+   vec = vec - 0.5_wp
+   zero = 0
+   r2 = sum(vec**2)
+
+   call dipole_grad_cgto(cgtoj, cgtoi, r2, vec, 100.0_wp, overlap, dipole, &
+      & doverlapi, ddipolei)
+
+   do i = 1, 3
+      vec(i) = vec(i) + step
+      r2 = sum(vec**2)
+      call dipole_cgto(cgtoj, cgtoi, r2, vec, 100.0_wp, sr, dr)
+      vec(i) = vec(i) - 2*step
+      r2 = sum(vec**2)
+      call dipole_cgto(cgtoj, cgtoi, r2, vec, 100.0_wp, sl, dl)
+      vec(i) = vec(i) + step
+      ddipolej(i, :, :, :) = 0.5_wp * (dr - dl) / step
+   end do
+
+   num: do i = 1, 3
+      do j = 1, 3
+         print *, "ddipolei(", i, ", ", j, ", 1, 1) = ", ddipolei(i, j, 1, 1)
+         print *, "ddipolej(", i, ", ", j, ", 1, 1) = ", ddipolej(i, j, 1, 1)
+         call check(error, ddipolei(i, j, 1, 1), ddipolej(i, j, 1, 1), thr=thr)
+         if (allocated(error)) exit num
+      end do
+   end do num
+   if (allocated(error)) return
+
+end subroutine test_dipole_grad_ss
+
+
+subroutine test_multipole_grad_pp(error)
+
+   !> Error handling
+   type(error_type), allocatable, intent(out) :: error
+
+   integer, parameter :: ng = 6
+   integer :: stat, i, j
+   type(cgto_type) :: cgtoi, cgtoj
+   real(wp) :: vec(3), r2, zero(3)
+   real(wp) :: overlap(1, 1), doverlapi(3, 1, 1), doverlapj(3, 1, 1)
+   real(wp) :: dipole(3, 1, 1), ddipolei(3, 3, 1, 1), ddipolej(3, 3, 1, 1)
    real(wp) :: quadrupole(6, 1, 1), dquadrupolei(3, 6, 1, 1), dquadrupolej(3, 6, 1, 1)
    real(wp) :: sr(1, 1), sl(1, 1), dr(3, 1, 1), dl(3, 1, 1), qr(6, 1, 1), ql(6, 1, 1)
    real(wp), parameter :: step = 1.0e-6_wp
@@ -257,7 +306,7 @@ subroutine test_dipole_grad_ss(error)
    end do num
    if (allocated(error)) return
 
-end subroutine test_dipole_grad_ss
+end subroutine test_multipole_grad_pp
 
 
 end module test_integral_multipole
